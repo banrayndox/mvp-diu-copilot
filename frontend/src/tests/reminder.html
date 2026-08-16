@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DIU Copilot - Reminder</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+    }
+
+    input,
+    button {
+      padding: 12px;
+      margin: 5px 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    #status {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f1f1f1;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>🔔 DIU Copilot Reminder</h1>
+
+  <input
+    type="text"
+    id="title"
+    placeholder="Reminder title"
+    value="CSE 221 Class"
+  />
+
+  <input
+    type="datetime-local"
+    id="reminderTime"
+  />
+
+  <button onclick="setReminder()">
+    Set Reminder
+  </button>
+
+  <button onclick="testAlarm()">
+    Test Alarm
+  </button>
+
+  <div id="status">
+    No reminder set.
+  </div>
+
+
+  <script>
+
+    let reminderTimeout = null;
+
+    // --------------------------------
+    // SET REMINDER
+    // --------------------------------
+
+    function setReminder() {
+
+      const title =
+        document.getElementById("title").value;
+
+      const time =
+        document.getElementById("reminderTime").value;
+
+      if (!title || !time) {
+        alert("Please enter title and time.");
+        return;
+      }
+
+      const reminderTime = new Date(time).getTime();
+
+      const now = Date.now();
+
+      const delay = reminderTime - now;
+
+      if (delay <= 0) {
+        alert("Please select a future time.");
+        return;
+      }
+
+      // Cancel previous reminder
+      if (reminderTimeout) {
+        clearTimeout(reminderTimeout);
+      }
+
+      // Set new reminder
+      reminderTimeout = setTimeout(() => {
+
+        showReminder(title);
+
+      }, delay);
+
+
+      document.getElementById("status").innerHTML = `
+        🔔 Reminder set!<br><br>
+
+        <strong>${title}</strong><br>
+
+        ${new Date(reminderTime).toLocaleString()}
+      `;
+
+      console.log("Reminder set:", {
+        title,
+        reminderTime: new Date(reminderTime)
+      });
+    }
+
+
+    // --------------------------------
+    // WHEN REMINDER TRIGGERS
+    // --------------------------------
+
+    function showReminder(title) {
+
+      // Play alarm
+      playAlarm();
+
+      // Browser notification
+      if ("Notification" in window) {
+
+        if (Notification.permission === "granted") {
+
+          new Notification("🔔 DIU Copilot", {
+            body: title
+          });
+
+        }
+      }
+
+      // Show alert
+      alert(`🔔 REMINDER\n\n${title}`);
+
+      document.getElementById("status").innerHTML = `
+        🔔 <strong>Reminder!</strong><br><br>
+
+        ${title}
+      `;
+    }
+
+
+    // --------------------------------
+    // ALARM SOUND
+    // --------------------------------
+
+    function playAlarm() {
+
+      const AudioContext =
+        window.AudioContext ||
+        window.webkitAudioContext;
+
+      const audioContext =
+        new AudioContext();
+
+      function beep(startTime, frequency) {
+
+        const oscillator =
+          audioContext.createOscillator();
+
+        const gain =
+          audioContext.createGain();
+
+        oscillator.connect(gain);
+
+        gain.connect(audioContext.destination);
+
+        oscillator.frequency.value = frequency;
+
+        oscillator.type = "sine";
+
+        gain.gain.setValueAtTime(
+          0.4,
+          startTime
+        );
+
+        gain.gain.exponentialRampToValueAtTime(
+          0.01,
+          startTime + 0.5
+        );
+
+        oscillator.start(startTime);
+
+        oscillator.stop(startTime + 0.5);
+      }
+
+
+      const now =
+        audioContext.currentTime;
+
+      beep(now, 800);
+      beep(now + 0.6, 800);
+      beep(now + 1.2, 1000);
+      beep(now + 1.8, 800);
+    }
+
+
+    // --------------------------------
+    // TEST ALARM
+    // --------------------------------
+
+    function testAlarm() {
+
+      playAlarm();
+
+    }
+
+
+    // --------------------------------
+    // NOTIFICATION PERMISSION
+    // --------------------------------
+
+    if ("Notification" in window) {
+
+      Notification.requestPermission();
+
+    }
+
+  </script>
+
+</body>
+</html>

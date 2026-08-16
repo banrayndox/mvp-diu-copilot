@@ -1,0 +1,25 @@
+import redis from "../../shared/redis/redis.js";
+
+const protect = async (req,res,next) => {
+
+    try {
+        const sessionId = req.cookies?.session;
+
+        if(!sessionId){
+            return res.status(400).json({success: false, message:'Session not found.'});
+        }
+
+        const session = await redis.get(`session-${sessionId}`);
+   
+        if(!session) {
+        return res.status(400).json({success: false, message:'Session Expired.'});
+        }
+        req.user = JSON.parse(session);
+    
+        next();
+    } catch (error) {
+        return res.status(500).json({success: false, message:'Error from gateway:protect'});
+        console.log(`Error from gateway:protect middleware`)
+    }
+}
+export default protect;
