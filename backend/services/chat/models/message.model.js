@@ -36,7 +36,10 @@ const messageSchema = new Schema({
     images: [{
         type: String
     }],
-    artifacts: [artifactSchema]
+    artifacts: [artifactSchema],
+    tempId: {
+        type: String
+    }
 },
 {
     timestamps: true

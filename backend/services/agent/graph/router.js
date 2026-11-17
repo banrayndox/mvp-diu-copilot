@@ -23,6 +23,7 @@ export const router = async ( state ) => {
         -routine
         -mentor
         -lostfound
+        -studentPortal
 
         Rules:
             chat:
@@ -63,6 +64,8 @@ export const router = async ( state ) => {
                 Questions about finding, searching, or looking up a mentor, student, teacher, or person by name or email (e.g. "Find Rakib", "Rakib Biswash কে খুঁজে দাও", "rakib@diu.edu.bd", "find mentor", "আমি mentor চাই").
             lostfound:
                 Questions about reporting lost items, found items, lost and found matches, or lost property (e.g. "I lost my wallet", "Found a phone near library", "lost item", "found item", "my lost matches").
+            studentPortal:
+                Question about CGPA, SemesterGPA and academic database information related which stored in student portal.
 
     return strictly only one word:
         chat
@@ -76,6 +79,7 @@ export const router = async ( state ) => {
         routine
         mentor
         lostfound
+        studentPortal
 
         user query: ${state.prompt}
     `

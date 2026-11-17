@@ -5,8 +5,10 @@ export const agentState = Annotation.Root({
     aiResponse: Annotation(),
     agent: Annotation(),
     conversationId: Annotation(),
+    userId: Annotation(),
+    userEmail: Annotation(),
+    userMongoId: Annotation(),
     searchResults: Annotation(),
     images: Annotation(),
     artifacts: Annotation()
 });
-

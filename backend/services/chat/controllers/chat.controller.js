@@ -1,5 +1,7 @@
+import mongoose from "mongoose";
 import Conversation from "../models/conversation.model.js";
 import Message from "../models/message.model.js";
+import redis from "../../../shared/redis/redis.js";
 
 export const createConversation = async (req, res) => {
     try {
@@ -52,9 +54,14 @@ export const createConversation = async (req, res) => {
             isDirectChat: Boolean(isDirectChat || targetUserId || targetEmail),
             matchId: matchId
         });
+
+        try {
+            await redis.publish("chat:conversations", JSON.stringify(conversation));
+        } catch (e) {}
+
         return res.status(200).json(conversation);
     } catch (error) {
-        console.log(`Error from chat:createConversation`, error);
+        console.error(`Error from chat:createConversation`, error);
         return res.status(500).json({ success: false, message: 'Error from chat: createConversation' });
     }
 };
@@ -63,7 +70,6 @@ export const getConversations = async (req, res) => {
     try {
         const userId = req.headers["x-user-id"];
         const userEmail = req.headers["x-user-email"];
-        console.log(`getConversations -> userId: ${userId}, userEmail: ${userEmail}`);
 
         const userIdentifiers = [];
         if (userId) userIdentifiers.push(userId);
@@ -80,7 +86,7 @@ export const getConversations = async (req, res) => {
 
         return res.status(200).json(conversations);
     } catch (error) {
-        console.log(`Error from chat: getConversations`, error);
+        console.error(`Error from chat: getConversations`, error);
         return res.status(500).json({ success: false, message: 'Error from chat: getConversations' });
     }
 };
@@ -91,20 +97,32 @@ export const updateConversation = async (req, res) => {
         const conversation = await Conversation.findByIdAndUpdate(id, {
             title
         }, { new: true });
+
+        try {
+            await redis.publish("chat:conversations", JSON.stringify(conversation));
+        } catch (e) {}
+
         return res.status(200).json(conversation);
     } catch (error) {
-        console.log(`Error from chat: updateConversation`, error);
+        console.error(`Error from chat: updateConversation`, error);
         return res.status(500).json({ success: false, message: 'Error from chat: updateConversation' });
     }
 };
 
 export const saveMessage = async (req, res) => {
     try {
-        const { conversationId, role, content, images, artifacts } = req.body;
+        const { conversationId, role, content, images, artifacts, tempId } = req.body;
         const senderId = req.body.senderId || req.headers["x-user-id"];
         const senderEmail = req.body.senderEmail || req.headers["x-user-email"];
 
-        console.log(`saveMessage -> conversationId: ${conversationId}, senderId: ${senderId}, role: ${role}`);
+        // Idempotency check: if message with this tempId was already saved for this conversation, return it
+        if (tempId && conversationId) {
+            const existing = await Message.findOne({ conversationId, tempId });
+            if (existing) {
+                return res.status(200).json(existing);
+            }
+        }
+
         const message = await Message.create({
             conversationId,
             senderId,
@@ -112,31 +130,44 @@ export const saveMessage = async (req, res) => {
             content,
             role: role || "user",
             images,
-            artifacts
+            artifacts,
+            tempId
         });
 
-        // Touch conversation's updatedAt timestamp so conversation moves to top for both participants
-        if (conversationId) {
+        // Touch conversation's updatedAt timestamp
+        if (conversationId && mongoose.isValidObjectId(conversationId)) {
             await Conversation.findByIdAndUpdate(conversationId, { updatedAt: new Date() });
+        }
+
+        // Real-time broadcast through Redis Pub/Sub
+        try {
+            await redis.publish("chat:messages", JSON.stringify(message));
+        } catch (e) {
+            console.warn("Could not publish message to Redis:", e.message);
         }
 
         return res.status(200).json(message);
 
     } catch (error) {
-        console.log(`Error from chat: saveMessage`, error);
+        console.error(`Error from chat: saveMessage`, error);
         return res.status(500).json({ success: false, message: 'Error from chat: saveMessage' });
     }
 };
 
 export const getMessages = async (req, res) => {
     try {
+        const { conversationId } = req.params;
+        if (!conversationId || !mongoose.isValidObjectId(conversationId)) {
+            return res.status(200).json([]);
+        }
+
         const messages = await Message.find({
-            conversationId: req.params.conversationId
-        });
+            conversationId
+        }).sort({ createdAt: 1 });
         return res.status(200).json(messages);
 
     } catch (error) {
-        console.log(`Error from chat: getMessages`, error);
+        console.error(`Error from chat: getMessages`, error);
         return res.status(500).json({ success: false, message: 'Error from chat: getMessages' });
     }
 };
@@ -155,17 +186,21 @@ export const closeConversation = async (req, res) => {
         );
 
         if (conversation) {
-            await Message.create({
+            const systemMsg = await Message.create({
                 conversationId: conversationId,
                 role: "assistant",
                 content: `✓ Item Returned - This Lost & Found case has been successfully resolved. Conversation is now closed.`,
                 senderId: "system"
             });
+            try {
+                await redis.publish("chat:messages", JSON.stringify(systemMsg));
+                await redis.publish("chat:conversations", JSON.stringify(conversation));
+            } catch (e) {}
         }
 
         return res.status(200).json(conversation);
     } catch (error) {
-        console.log(`Error from chat: closeConversation`, error);
+        console.error(`Error from chat: closeConversation`, error);
         return res.status(500).json({ success: false, message: 'Error closing conversation' });
     }
 };

@@ -17,8 +17,8 @@ app.use(cors({
 
 connectDB();
 
-
 app.use("/api/lost-found", lostFoundRoutes);
+app.use("/", lostFoundRoutes);
 
 app.get("/health", (req, res) => {
     res.send("Health is okay on Lost & Found Match server");

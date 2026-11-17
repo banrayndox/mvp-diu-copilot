@@ -3,6 +3,7 @@ import { UserCheck, MessageSquare, Mail, GraduationCap, Award, CheckCircle } fro
 import { useDispatch, useSelector } from 'react-redux';
 import { createConversation } from '../../features/createConversation';
 import { addConversation, setConvTitle, setSelectConversation } from '../../redux/conversationSlice';
+import { addMessage } from '../../redux/messageSlice';
 import { updateConversation } from '../../features/updateConversation';
 import SendMessage from '../../features/sendMessage';
 import saveDirectMessage from '../../features/saveDirectMessage';
@@ -37,17 +38,23 @@ const MentorList = ({ data }) => {
 
             // 2. Send initial greeting message directly (No AI Agent)
             const greetingPrompt = `Hello ${mentor.name}, I found your profile on DIU Mentor Finder and would like to connect regarding mentorship!`;
+            const tempId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             
             const messagePayload = {
+                tempId,
                 conversationId: conv._id,
                 content: greetingPrompt,
                 role: "user",
                 senderId: userData?.userId,
-                senderEmail: userData?.email
+                senderEmail: userData?.email,
+                createdAt: new Date().toISOString()
             };
 
             dispatch(addMessage(messagePayload));
-            await saveDirectMessage(messagePayload);
+            const saved = await saveDirectMessage(messagePayload);
+            if (saved && saved._id) {
+                dispatch(addMessage(saved));
+            }
 
         } catch (error) {
             console.error("Failed to start mentor chat:", error);

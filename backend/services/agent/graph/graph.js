@@ -12,6 +12,7 @@ import { coverPageAgent } from "../agents/coverPage.agent.js";
 import { routineAgent } from "../agents/routine.agent.js";
 import { mentorAgent } from "../agents/mentor.agent.js";
 import { lostFoundAgent } from "../agents/lostFound.agent.js";
+import { studentPortalAgent } from "../agents/studentPortal.agent.js";
 const workflow = new StateGraph(agentState)
 workflow.addNode("router", router);
 workflow.addNode("chat",chatAgent);
@@ -25,7 +26,10 @@ workflow.addNode("coverpage", coverPageAgent);
 workflow.addNode("routine", routineAgent);
 workflow.addNode("mentor", mentorAgent);
 workflow.addNode("lostfound", lostFoundAgent);
+workflow.addNode("studentPortal",studentPortalAgent
+);
 workflow.addEdge("__start__", "router");
+
 workflow.addConditionalEdges("router", (state)=>{
         switch(state.agent){
             case "chat":
@@ -50,6 +54,8 @@ workflow.addConditionalEdges("router", (state)=>{
                 return "mentor"
             case "lostfound":
                 return "lostfound"
+            case "studentPortal":
+                return "studentPortal"
             default:
                 return "chat"
         }
@@ -64,7 +70,8 @@ workflow.addConditionalEdges("router", (state)=>{
     coverpage: "coverpage",
     routine: "routine",
     mentor: "mentor",
-    lostfound: "lostfound"
+    lostfound: "lostfound",
+    studentPortal: "studentPortal"
 });
 workflow.addEdge("search","chat");
 workflow.addEdge("chat", "__end__");
@@ -77,4 +84,5 @@ workflow.addEdge("coverpage", "__end__");
 workflow.addEdge("routine", "__end__");
 workflow.addEdge("mentor", "__end__");
 workflow.addEdge("lostfound", "__end__");
+workflow.addEdge("studentPortal","__end__");
 export const graph = workflow.compile();

@@ -7,8 +7,9 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import MentorList from "./MentorList";
 import LostFoundMatchList from "./LostFoundMatchList";
+import CoverPage from "../CoverPage";
 
-const MessageBubble = ({ role, content, images, senderId, senderEmail }) => {
+const MessageBubble = ({ role, content = "", images = [], senderId, senderEmail }) => {
   const { userData } = useSelector(state => state?.user || {});
   const [lightBox, setLightBox] = useState(null);
   const [copyCode, setCopyCode] = useState("");
@@ -28,17 +29,20 @@ const MessageBubble = ({ role, content, images, senderId, senderEmail }) => {
 
   let mentorData = null;
   let lostFoundData = null;
+  let coverPageData = null;
 
   if (role !== "user") {
     if (typeof content === "object" && content !== null) {
       if (content.type === "mentorResults") mentorData = content;
       if (content.type === "lostFoundMatchList") lostFoundData = content;
+      if (content.type === "coverPageData") coverPageData = content;
     } else if (typeof content === "string") {
       try {
         const cleaned = content.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/\s*```$/, "").trim();
         const parsed = JSON.parse(cleaned);
         if (parsed?.type === "mentorResults") mentorData = parsed;
         if (parsed?.type === "lostFoundMatchList") lostFoundData = parsed;
+        if (parsed?.type === "coverPageData") coverPageData = parsed;
       } catch (e) {}
     }
   }
@@ -49,6 +53,10 @@ const MessageBubble = ({ role, content, images, senderId, senderEmail }) => {
 
   if (lostFoundData) {
     return <LostFoundMatchList data={lostFoundData} />;
+  }
+
+  if (coverPageData) {
+    return <CoverPage data={coverPageData.data} />;
   }
 
   return (
@@ -192,7 +200,7 @@ const MessageBubble = ({ role, content, images, senderId, senderEmail }) => {
             },
           }}
         >
-          {content}
+          {typeof content === "string" ? content : JSON.stringify(content, null, 2)}
         </Markdown>
       </div>
 

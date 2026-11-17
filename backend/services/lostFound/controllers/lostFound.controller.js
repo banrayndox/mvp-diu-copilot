@@ -5,8 +5,8 @@ import { runBidirectionalMatching } from "../utility/matcher.utility.js";
 
 export const createReport = async (req, res) => {
     try {
-        const userId = req.headers["x-user-id"];
-        const userEmail = req.headers["x-user-email"];
+        const userId = req.headers["x-user-id"] || req.body.userId || "guest_user";
+        const userEmail = req.headers["x-user-email"] || req.body.userEmail || "";
 
         const { type, item, description, location, category } = req.body;
 
@@ -19,21 +19,27 @@ export const createReport = async (req, res) => {
 
         const newItem = await LostFoundItem.create({
             userId: userId,
-            userEmail: userEmail || "",
+            userEmail: userEmail,
             type: type.toLowerCase(),
             item: item.trim(),
             description: description ? description.trim() : "",
             location: location.trim(),
             category: category || "General",
-            status: "active"
+            status: "active",
+            isActive: true
         });
 
         // Run bidirectional matching against opposite reports
-        const matches = await runBidirectionalMatching(newItem);
+        let matches = [];
+        try {
+            matches = await runBidirectionalMatching(newItem);
+        } catch (matchErr) {
+            console.warn("Matcher utility warning:", matchErr.message);
+        }
 
         // Fetch populated matches for output
         let populatedMatches = await LostFoundMatch.find({
-            _id: { $in: matches.map(m => m._id) }
+            _id: { $in: (matches || []).map(m => m._id) }
         }).populate("lostItem").populate("foundItem");
 
         // Fallback: If no exact score match was created, query existing active opposite items in DB
@@ -50,23 +56,29 @@ export const createReport = async (req, res) => {
                 const lostItem = newItem.type === "lost" ? newItem : oppItem;
                 const foundItem = newItem.type === "lost" ? oppItem : newItem;
 
-                const matchDoc = await LostFoundMatch.findOneAndUpdate(
-                    { lostItem: lostItem._id, foundItem: foundItem._id },
-                    {
-                        lostItem: lostItem._id,
-                        foundItem: foundItem._id,
-                        lostUser: lostItem.userId,
-                        lostUserEmail: lostItem.userEmail || lostItem.userId,
-                        foundUser: foundItem.userId,
-                        foundUserEmail: foundItem.userEmail || foundItem.userId,
-                        matchScore: 75,
-                        matchReasons: [`Recent ${oppositeType.toUpperCase()} item in system: "${oppItem.item}"`],
-                        status: "potential"
-                    },
-                    { upsert: true, new: true, setDefaultsOnInsert: true }
-                ).populate("lostItem").populate("foundItem");
+                try {
+                    const matchDoc = await LostFoundMatch.findOneAndUpdate(
+                        { lostItem: lostItem._id, foundItem: foundItem._id },
+                        {
+                            lostItem: lostItem._id,
+                            foundItem: foundItem._id,
+                            lostUser: lostItem.userId,
+                            lostUserEmail: lostItem.userEmail || lostItem.userId,
+                            foundUser: foundItem.userId,
+                            foundUserEmail: foundItem.userEmail || foundItem.userId,
+                            matchScore: 75,
+                            matchReasons: [`Recent ${oppositeType.toUpperCase()} item in system: "${oppItem.item}"`],
+                            status: "potential"
+                        },
+                        { upsert: true, new: true, setDefaultsOnInsert: true }
+                    ).populate("lostItem").populate("foundItem");
 
-                populatedMatches.push(matchDoc);
+                    if (matchDoc) {
+                        populatedMatches.push(matchDoc);
+                    }
+                } catch (e) {
+                    console.warn("Upsert match doc error:", e.message);
+                }
             }
         }
 
@@ -92,18 +104,24 @@ export const getUserMatches = async (req, res) => {
         const userId = req.headers["x-user-id"];
         const userEmail = req.headers["x-user-email"];
 
-        const userIdentifiers = [userId];
+        const userIdentifiers = [];
+        if (userId) userIdentifiers.push(userId);
         if (userEmail) userIdentifiers.push(userEmail);
 
-        const matches = await LostFoundMatch.find({
-            $or: [
-                { lostUser: { $in: userIdentifiers } },
-                { foundUser: { $in: userIdentifiers } }
-            ]
-        })
-        .populate("lostItem")
-        .populate("foundItem")
-        .sort({ updatedAt: -1 });
+        let query = {};
+        if (userIdentifiers.length > 0) {
+            query = {
+                $or: [
+                    { lostUser: { $in: userIdentifiers } },
+                    { foundUser: { $in: userIdentifiers } }
+                ]
+            };
+        }
+
+        const matches = await LostFoundMatch.find(query)
+            .populate("lostItem")
+            .populate("foundItem")
+            .sort({ updatedAt: -1 });
 
         return res.status(200).json({
             success: true,
@@ -123,11 +141,6 @@ export const getUserMatches = async (req, res) => {
 
 export const openMatchChat = async (req, res) => {
     try {
-          console.log("===== OPEN MATCH CHAT HIT =====");
-    console.log("matchId:", req.params.matchId);
-    console.log("userId:", req.headers["x-user-id"]);
-    console.log("userEmail:", req.headers["x-user-email"]);
-
         const userId = req.headers["x-user-id"];
         const userEmail = req.headers["x-user-email"];
         const { matchId } = req.params;
@@ -143,18 +156,19 @@ export const openMatchChat = async (req, res) => {
             });
         }
 
+        const chatServiceUrl = process.env.CHAT_SERVICE_URL || "http://localhost:8091";
+
         // Return existing conversation if already created for this match
         if (match.conversationId) {
             let existingConv = null;
             try {
-                const chatServiceUrl = process.env.CHAT_SERVICE_URL || "http://localhost:8091";
                 const convRes = await axios.get(`${chatServiceUrl}/get-conversations`, {
                     headers: { "x-user-id": userId, "x-user-email": userEmail }
                 });
                 const userConvs = convRes.data || [];
                 existingConv = userConvs.find(c => c._id.toString() === match.conversationId.toString());
             } catch (e) {
-                console.error("Could not fetch conversation from chat service:", e.message);
+                console.warn("Could not fetch conversation from chat service:", e.message);
             }
 
             const itemTitle = match.lostItem?.item || match.foundItem?.item || "Lost & Found Item";
@@ -172,7 +186,7 @@ export const openMatchChat = async (req, res) => {
             });
         }
 
-        // Determine counterparty details from stored email fields on match
+        // Determine counterparty details
         const isLostUser = (userId && (match.lostUser === userId || match.lostUserEmail === userId)) ||
                            (userEmail && (match.lostUser === userEmail || match.lostUserEmail === userEmail));
 
@@ -181,12 +195,8 @@ export const openMatchChat = async (req, res) => {
             ? (match.foundUserEmail || match.foundUser)
             : (match.lostUserEmail || match.lostUser);
 
-        console.log(`openMatchChat -> isLostUser: ${isLostUser}, counterpartyUserId: ${counterpartyUserId}, counterpartyEmail: ${counterpartyUserEmail}`);
-
         const itemTitle = match.lostItem?.item || match.foundItem?.item || "Lost & Found Item";
 
-        // Call Chat service to create 1-on-1 private conversation
-        const chatServiceUrl = process.env.CHAT_SERVICE_URL || "http://localhost:8091";
         const chatResponse = await axios.post(`${chatServiceUrl}/create-conversation`, {
             targetUserId: counterpartyUserId,
             targetEmail: counterpartyUserEmail,
@@ -202,7 +212,6 @@ export const openMatchChat = async (req, res) => {
 
         const conversation = chatResponse.data;
 
-        // Save conversation ID to match record & update status
         match.conversationId = conversation._id;
         match.status = "chat_started";
         await match.save();
@@ -227,7 +236,9 @@ export const openMatchChat = async (req, res) => {
 export const getMyReports = async (req, res) => {
     try {
         const userId = req.headers["x-user-id"];
-        const reports = await LostFoundItem.find({ userId }).sort({ createdAt: -1 });
+        const ids = [userId].filter(Boolean);
+        const query = ids.length > 0 ? { userId: { $in: ids } } : {};
+        const reports = await LostFoundItem.find(query).sort({ createdAt: -1 });
         return res.status(200).json({
             success: true,
             count: reports.length,
@@ -265,18 +276,15 @@ export const confirmReturn = async (req, res) => {
         }
 
         if (match.lostUserConfirmed && match.foundUserConfirmed) {
-            // BOTH users confirmed return!
             match.status = "returned";
             match.returnedAt = new Date();
             await match.save();
 
-            // Deactivate and archive reports
             await LostFoundItem.updateMany(
                 { _id: { $in: [match.lostItem, match.foundItem] } },
                 { status: "returned", isActive: false, returnedAt: new Date() }
             );
 
-            // Cancel any OTHER active matches linked to either report
             await LostFoundMatch.updateMany(
                 {
                     _id: { $ne: match._id },
@@ -289,7 +297,6 @@ export const confirmReturn = async (req, res) => {
                 { status: "cancelled" }
             );
 
-            // Close chat conversation if linked
             if (match.conversationId) {
                 const chatServiceUrl = process.env.CHAT_SERVICE_URL || "http://localhost:8091";
                 try {
@@ -300,14 +307,14 @@ export const confirmReturn = async (req, res) => {
                         headers: { "x-user-id": userId, "x-user-email": userEmail }
                     });
                 } catch (e) {
-                    console.error("Failed to call close-conversation on chat service:", e.message);
+                    console.warn("Failed to call close-conversation:", e.message);
                 }
             }
 
             return res.status(200).json({
                 success: true,
                 isFullyResolved: true,
-                message: "Item return fully confirmed by both users! Reports deactivated.",
+                message: "Item return fully confirmed by both users! Reports marked resolved.",
                 match
             });
         } else {
@@ -345,4 +352,3 @@ export const rejectMatch = async (req, res) => {
         return res.status(500).json({ success: false, message: "Failed to reject match", error: error.message });
     }
 };
-

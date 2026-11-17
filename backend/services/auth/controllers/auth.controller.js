@@ -22,21 +22,24 @@ export const login = async (req,res) => {
 
         const sessionId = crypto.randomUUID();
 
-        await redis.set(`session-${sessionId}`,JSON.stringify({
+        const userData = {
             userId: user._id,
             name: user.name,
-            emaiL: user.email,
-            avatar: user.avatar           
-        }), "EX", 7 * 24 * 60 * 60  );
+            email: user.email,
+            avatar: user.avatar
+        };
 
-        res.cookie("session", sessionId,{
+        await redis.set(`session-${sessionId}`, JSON.stringify(userData), "EX", 7 * 24 * 60 * 60);
+
+        res.cookie("session", sessionId, {
             httpOnly: true,
             secure: false,
-            sameSite: "strict",
+            sameSite: "lax",
+            path: "/",
             maxAge: 7 * 24 * 60 * 60 * 1000
         });
 
-        return res.status(200).json({success : true, user});
+        return res.status(200).json({ success: true, user: userData });
 
 
     } catch (error) {
@@ -49,11 +52,18 @@ export const login = async (req,res) => {
 export const logout = async(req,res)=>{
     try {
         const sessionId = req.cookies?.session;
-        await redis.del(`session-${sessionId}`);
-        res.clearCookie("session");
+        if (sessionId) {
+            await redis.del(`session-${sessionId}`);
+        }
+        res.clearCookie("session", {
+            httpOnly: true,
+            secure: false,
+            sameSite: "lax",
+            path: "/"
+        });
         return res.status(200).json({success:true, message: 'Logout successfully'})
     } catch (error) {
+        console.log(`Error from logout controller.`, error);
         return res.status(500).json({success:false, message: 'Error from logout controller'})
-        console.log(`Error from logout controller.`)
     }
 }

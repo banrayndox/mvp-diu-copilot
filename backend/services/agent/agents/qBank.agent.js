@@ -3,34 +3,19 @@ import { getModel } from "../config/llmModels.js";
 
 export const qBankAgent = async (state) => {
     try {
-
         const llm = await getModel("questionbank");
 
-        // -----------------------------------------
-        // 1. Extract QBank information from prompt
-        // -----------------------------------------
-
-const extractionPrompt = `
-You are a DIU Question Bank parameter extractor.
-
-Extract:
-- department
-- course
-- semester
-- year
-- examType
+        const extractionPrompt = `You are a DIU Question Bank parameter extractor.
+Extract search parameters from the user's question:
+- department (e.g. "CSE", "SWE", "EEE", "BBA", or null)
+- course (e.g. "Algorithm", "Data Structure", "OOP", or null)
+- semester (number like 1, 2, 3, 4 or null)
+- year (number like 2022, 2023, 2024 or null)
+- examType (e.g. "Mid", "Final", or null)
 
 Rules:
-- department must be a string like "CSE"
-- course must be a string like "Algorithm"
-- semester MUST be a number.
-  Example: "4th semester" -> 4
-  Example: "4th" -> 4
-  Example: "semester 4" -> 4
-- year must be a number or null
-- examType must be a string or null
 - Never invent missing information.
-- Return ONLY valid JSON.
+- Return ONLY valid JSON without markdown fences.
 
 Schema:
 {
@@ -42,103 +27,65 @@ Schema:
 }
 
 User Request:
-${state.prompt}
-`;
+${state.prompt}`;
 
-        const extractionResponse =
-            await llm.invoke(extractionPrompt);
+        const extractionResponse = await llm.invoke(extractionPrompt);
+        const cleanedContent = extractionResponse.content?.replace(/```json/gi, "").replace(/```/g, "").trim();
 
-        const params = JSON.parse(
-            extractionResponse.content
-        );
+        let params = { department: null, course: null, semester: null, year: null, examType: null };
+        try {
+            params = JSON.parse(cleanedContent);
+        } catch (e) {
+            console.warn("Could not parse QBank extraction JSON, falling back to query search");
+            params.course = state.prompt;
+        }
 
         console.log("QBank Parameters:", params);
 
+        // Call QBank Backend service
+        const qBankUrl = process.env.QBANK_SERVICE_URL || "http://localhost:8095";
+        let result = { questions: [] };
 
-        // -----------------------------------------
-        // 2. Check required fields
-        // -----------------------------------------
-
-        const missingFields = [];
-
-        if (!params.department)
-            missingFields.push("department");
-
-        if (!params.course)
-            missingFields.push("course");
-
-        if (!params.semester)
-            missingFields.push("semester");
-
-
-        // -----------------------------------------
-        // 3. Missing information
-        // -----------------------------------------
-
-        if (missingFields.length > 0) {
-
-            return {
-                ...state,
-
-                aiResponse:
-                    `I need the following information to search the question bank:\n\n` +
-                    missingFields
-                        .map(field => `- ${field}`)
-                        .join("\n"),
-
-                artifacts: []
-            };
-        }
-
-
-        // -----------------------------------------
-        // 4. Call QBank Backend
-        // -----------------------------------------
-
-        const response = await axios.post(
-            "http://localhost:8095/question/search",
-            {
+        try {
+            const response = await axios.post(`${qBankUrl}/question/search`, {
                 department: params.department,
                 course: params.course,
                 semester: params.semester,
                 year: params.year,
                 examType: params.examType
-            }
-        );
+            });
+            result = response.data || { questions: [] };
+        } catch (apiErr) {
+            console.error("QBank backend search API error:", apiErr.message);
+        }
 
+        const questions = result.questions || [];
 
-        const result = response.data;
+        if (questions.length === 0) {
+            return {
+                ...state,
+                aiResponse: `No past question papers were found matching your query in the DIU Question Bank.\n\n**Search Criteria:**\n- Department: ${params.department || "Any"}\n- Course: ${params.course || "Any"}\n- Semester: ${params.semester || "Any"}\n\n*Tip: Try searching by specific course name like "Algorithm", "Data Structure", or "OOP".*`,
+                artifacts: []
+            };
+        }
 
-        console.log("QBank Backend Response:", result);
-
-
-
-return {
-    ...state,
-
-    aiResponse: result.questions
-        ?.map(q =>
-            `**${q.courseName} - ${q.year || ""} ${q.examType || ""}**\n` +
-            `[Download PDF](http://localhost:8095/question/files/${q.id})`
-        )
-        .join("\n\n") || "No question papers found.",
-
-    artifacts: []
-};
-
-    } catch (error) {
-
-        console.error(
-            "Error from agent: qBankAgent",
-            error
-        );
+        const formattedResults = questions.map((q, idx) => {
+            const title = `${q.courseName || q.course || "Exam Paper"} (${q.department || "CSE"})`;
+            const meta = [q.year ? `Year: ${q.year}` : null, q.examType ? `Type: ${q.examType}` : null, q.semester ? `Semester: ${q.semester}` : null].filter(Boolean).join(" • ");
+            const downloadUrl = `http://localhost:8095/question/files/${q.id}`;
+            return `### ${idx + 1}. ${title}\n${meta ? `> ${meta}\n\n` : ""}[📥 Download Official PDF Paper](${downloadUrl})`;
+        }).join("\n\n---\n\n");
 
         return {
             ...state,
-
-            aiResponse:
-                "Sorry, I could not search the question bank.",
-
+            aiResponse: `Here are the official question papers from the **DIU Question Bank**:\n\n${formattedResults}`,
+            artifacts: []
+        };
+    } catch (error) {
+        console.error("Error from qBankAgent:", error);
+        return {
+            ...state,
+            aiResponse: "Sorry, I could not search the DIU question bank right now. Please try again.",
             artifacts: []
         };
     }
