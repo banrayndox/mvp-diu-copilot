@@ -11,13 +11,28 @@ import CoverPage from './tests/CoverPage'
 const App = () => {
   const dispatch = useDispatch();
 
-    useEffect(()=>{
-      const getUser = async () => {
-      const data = await getCurrentUser();
-      dispatch(setUserData(data));
+  useEffect(() => {
+    const getUser = async () => {
+      try {
+        const cached = localStorage.getItem("diu_guest_user");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.userId) {
+            dispatch(setUserData(parsed));
+            return;
+          }
+        }
+      } catch (e) {
+        console.error(e);
       }
-      getUser();
-    },[]);
+
+      const data = await getCurrentUser();
+      if (data) {
+        dispatch(setUserData(data));
+      }
+    };
+    getUser();
+  }, [dispatch]);
 
   return (
  <>

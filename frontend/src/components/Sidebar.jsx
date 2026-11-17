@@ -265,9 +265,16 @@ const Sidebar = () => {
                             <span className='absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-[#0a0c10] rounded-full' />
                         </div>
                         <div className='flex-1 min-w-0'>
-                            <p className='text-[13px] font-semibold text-slate-100 truncate'>
-                                {userData?.name || "DIU Student"}
-                            </p>
+                            <div className='flex items-center gap-1.5'>
+                                <p className='text-[13px] font-semibold text-slate-100 truncate'>
+                                    {userData?.name || "DIU Student"}
+                                </p>
+                                {userData?.role === 'recruiter_guest' && (
+                                    <span className='px-1.5 py-0.2 text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded'>
+                                        GUEST
+                                    </span>
+                                )}
+                            </div>
                             <p className='text-[10.5px] text-slate-400 truncate'>
                                 {userData?.email || "student@diu.edu.bd"}
                             </p>
@@ -276,6 +283,7 @@ const Sidebar = () => {
                         <button
                             onClick={() => {
                                 Logout();
+                                localStorage.removeItem('diu_guest_user');
                                 dispatch(setUserData(null));
                                 dispatch(setConversations([]));
                                 dispatch(setSelectConversation(null));
